@@ -1,0 +1,21 @@
+{
+  "name": "Example User",
+  "research_interests": [
+    "large language model agents and tool use",
+    "reinforcement learning from human feedback",
+    "retrieval-augmented generation",
+    "interpretability and mechanistic analysis of transformers"
+  ],
+  "methodological_preferences": [
+    "empirical evaluations on standard benchmarks",
+    "papers with released code and reproducible experiments",
+    "theoretical analysis grounded in real systems"
+  ],
+  "avoid": [
+    "purely application-focused papers without methodological contributions",
+    "papers on image generation aesthetics"
+  ],
+  "arxiv_categories": ["cs.CL", "cs.LG", "cs.AI"],
+  "keywords": ["agent", "tool use", "RLHF", "RAG", "interpretability"],
+  "rating_history": []
+}
