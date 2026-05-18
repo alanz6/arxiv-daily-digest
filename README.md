@@ -64,7 +64,7 @@ arxiv_digest/
     └── papers.db                # created on first run
 ```
 
-## What's intentionally left out (for later milestones)
+## Roadmap (next milestones)
 
 - **Delivery** — email (SendGrid) and Slack webhook rendering. The markdown renderer in `main.py` is the bones of an email template.
 - **Feedback loop** — thumbs-up/down links, web UI, and the wiring back into `profile.rating_history`. The profile schema already has a `rating_history` slot; the scorer reads it but nothing writes to it yet.
