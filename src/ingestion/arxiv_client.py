@@ -31,10 +31,11 @@ def fetch_recent_papers(
     lookback_days: int = 1,
     max_results_per_category: int = 100,
 ) -> list[Paper]:
-    """Fetch papers submitted in the last `lookback_days` for the given categories.
+    """Fetch papers updated in the last `lookback_days` for the given categories.
 
-    arXiv's API doesn't support a clean date-range query for "new submissions",
-    so we sort by submittedDate and filter client-side.
+    arXiv's API sorts by `submittedDate` which corresponds to the most recent
+    version's submission date (i.e. `result.updated`, not `result.published`).
+    We filter against `updated` so the sort order and the cutoff agree.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
     client = arxiv.Client(page_size=100, delay_seconds=3.0, num_retries=3)
@@ -48,12 +49,15 @@ def fetch_recent_papers(
             sort_by=arxiv.SortCriterion.SubmittedDate,
             sort_order=arxiv.SortOrder.Descending,
         )
-        logger.info("Fetching arXiv category %s", category)
+        logger.info("Fetching arXiv category %s (cutoff=%s)", category, cutoff.isoformat())
+        kept = 0
         for result in client.results(search):
-            if result.published < cutoff:
+            if result.updated < cutoff:
                 break
             paper = _to_paper(result)
             papers[paper.arxiv_id] = paper
+            kept += 1
+        logger.info("  %s: kept %d papers", category, kept)
 
     logger.info("Fetched %d unique papers across %d categories", len(papers), len(categories))
     return list(papers.values())

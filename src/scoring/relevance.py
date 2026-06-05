@@ -1,16 +1,20 @@
 """LLM-based relevance scoring against a user interest profile.
 
-Each paper is scored 0-1 against the profile. The profile sits in the cached
-system prompt so repeated requests amortize its cost.
+Each paper is scored 0-1 against the profile. Batches run concurrently via
+asyncio + a semaphore so wall-clock time is bounded by the slowest batch
+× ceil(num_batches / concurrency), not the sum of batch times.
+
+The public `score()` method is sync — it dispatches to `_score_async` internally
+via `asyncio.run`. Callers (the pipeline, the CLI) don't need to know.
 """
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
-from typing import Optional
+import os
+from typing import Callable, Optional
 
-import anthropic
-
+from src.llm import LLMClient
 from src.models import Paper
 
 logger = logging.getLogger(__name__)
@@ -40,26 +44,11 @@ Scoring guidance:
 Be honest. Most papers should score below 0.5. Reserve high scores for genuine matches.
 """
 
-SCORING_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "scores": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "arxiv_id": {"type": "string"},
-                    "score": {"type": "number"},
-                    "rationale": {"type": "string"},
-                },
-                "required": ["arxiv_id", "score", "rationale"],
-                "additionalProperties": False,
-            },
-        }
-    },
-    "required": ["scores"],
-    "additionalProperties": False,
-}
+SCORING_SCHEMA_HINT = """{
+  "scores": [
+    {"arxiv_id": "<string matching the input>", "score": <number 0-1>, "rationale": "<one sentence>"}
+  ]
+}"""
 
 
 def _format_profile(profile: dict) -> str:
@@ -96,80 +85,130 @@ def _format_papers(papers: list[Paper]) -> str:
     return "\n---\n".join(blocks)
 
 
+def _default_concurrency() -> int:
+    raw = os.environ.get("SCORING_CONCURRENCY", "3")
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 3
+    # Hard upper bound: DigitalOcean publishes ~250 req/min for Agent Inference
+    # (no published number for Serverless Inference, but real cap is account-
+    # tier dependent). 60 is conservative headroom; benchmark up to confirm.
+    return max(1, min(60, n))
+
+
+def _default_batch_size() -> int:
+    raw = os.environ.get("SCORING_BATCH_SIZE", "10")
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 10
+    return max(1, min(50, n))
+
+
 class RelevanceScorer:
     def __init__(
         self,
         profile: dict,
-        client: Optional[anthropic.Anthropic] = None,
-        model: str = "claude-opus-4-7",
-        batch_size: int = 10,
+        llm: Optional[LLMClient] = None,
+        batch_size: Optional[int] = None,
+        concurrency: Optional[int] = None,
     ):
         self.profile = profile
-        self.client = client or anthropic.Anthropic()
-        self.model = model
-        self.batch_size = batch_size
+        self.llm = llm or LLMClient()
+        self.batch_size = batch_size if batch_size is not None else _default_batch_size()
+        # Cap concurrency: too high → DO rate-limits or 5xxs;
+        # too low → wastes the parallelism win. Default 3, tunable via env.
+        self.concurrency = concurrency if concurrency is not None else _default_concurrency()
         self.system_text = _format_profile(profile)
 
-    def score(self, papers: list[Paper]) -> list[Paper]:
-        """Mutate papers in-place with relevance_score and relevance_rationale."""
+    def score(
+        self,
+        papers: list[Paper],
+        on_progress: Optional[Callable[[int, int], None]] = None,
+    ) -> list[Paper]:
+        """Mutate papers in-place with relevance_score and relevance_rationale.
+
+        Public sync API. Dispatches to the async implementation internally so
+        batches run concurrently bounded by `self.concurrency`.
+
+        `on_progress`, if given, is called as on_progress(done, total) after
+        each batch completes. Note: with concurrency > 1, batches may finish
+        out of order — `done` is monotonic but the order of fired progress
+        callbacks doesn't correspond to batch index.
+        """
         if not papers:
             return papers
-
-        by_id = {p.arxiv_id: p for p in papers}
-        for i in range(0, len(papers), self.batch_size):
-            batch = papers[i : i + self.batch_size]
-            logger.info("Scoring batch %d-%d of %d", i, i + len(batch), len(papers))
-            try:
-                scores = self._score_batch(batch)
-            except Exception as e:
-                logger.warning("Scoring batch failed: %s; defaulting batch to 0", e)
-                for p in batch:
-                    p.relevance_score = 0.0
-                    p.relevance_rationale = f"scoring failed: {e}"
-                continue
-
-            for entry in scores:
-                paper = by_id.get(entry["arxiv_id"])
-                if paper is None:
-                    continue
-                paper.relevance_score = float(entry["score"])
-                paper.relevance_rationale = entry["rationale"]
-
-            # Backfill any paper the model dropped
-            for p in batch:
-                if p.relevance_score is None:
-                    p.relevance_score = 0.0
-                    p.relevance_rationale = "no score returned"
-
+        asyncio.run(self._score_async(papers, on_progress))
         return papers
 
-    def _score_batch(self, batch: list[Paper]) -> list[dict]:
+    async def _score_async(
+        self,
+        papers: list[Paper],
+        on_progress: Optional[Callable[[int, int], None]],
+    ) -> None:
+        by_id = {p.arxiv_id: p for p in papers}
+        batches: list[tuple[int, list[Paper]]] = []
+        for i in range(0, len(papers), self.batch_size):
+            batches.append((i, papers[i : i + self.batch_size]))
+
+        semaphore = asyncio.Semaphore(self.concurrency)
+        completed = 0
+        total = len(papers)
+
+        async def process_batch(idx: int, batch: list[Paper]) -> None:
+            nonlocal completed
+            async with semaphore:
+                logger.info(
+                    "Scoring batch %d-%d of %d (concurrency=%d)",
+                    idx, idx + len(batch), total, self.concurrency,
+                )
+                try:
+                    scores = await self._score_batch_async(batch)
+                except Exception as e:
+                    logger.warning("Scoring batch failed: %s; defaulting batch to 0", e)
+                    for p in batch:
+                        p.relevance_score = 0.0
+                        p.relevance_rationale = f"scoring failed: {e}"
+                else:
+                    for entry in scores:
+                        paper = by_id.get(entry.get("arxiv_id"))
+                        if paper is None:
+                            continue
+                        try:
+                            paper.relevance_score = float(entry["score"])
+                        except (TypeError, ValueError):
+                            paper.relevance_score = 0.0
+                        paper.relevance_rationale = entry.get("rationale", "")
+                    for p in batch:
+                        if p.relevance_score is None:
+                            p.relevance_score = 0.0
+                            p.relevance_rationale = "no score returned"
+
+                # Single-threaded event loop — no lock needed
+                completed += len(batch)
+                if on_progress:
+                    on_progress(completed, total)
+
+        await asyncio.gather(*(process_batch(i, b) for i, b in batches))
+
+    async def _score_batch_async(self, batch: list[Paper]) -> list[dict]:
         user_content = (
             "Score these papers. Return one entry per paper with the exact arxiv_id given.\n\n"
             + _format_papers(batch)
         )
-
-        response = self.client.messages.create(
-            model=self.model,
+        # temperature=0 for scoring: relevance is a ranking task where we want
+        # deterministic, stable scores across reruns. Verified empirically —
+        # at temperature=0.2 the self-consistency top-10 Jaccard was 0.43;
+        # at 0 it should approach 1.0 (see docs/evaluation.md).
+        data = await self.llm.chat_json_async(
+            system=self.system_text,
+            user=user_content,
+            schema_hint=SCORING_SCHEMA_HINT,
             max_tokens=4096,
-            system=[
-                {
-                    "type": "text",
-                    "text": self.system_text,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": user_content}],
-            output_config={
-                "format": {
-                    "type": "json_schema",
-                    "schema": SCORING_SCHEMA,
-                }
-            },
+            temperature=0.0,
         )
-
-        text = next((b.text for b in response.content if b.type == "text"), "")
-        if not text:
-            raise ValueError("model returned no text")
-        data = json.loads(text)
-        return data["scores"]
+        scores = data.get("scores", [])
+        if not isinstance(scores, list):
+            raise ValueError(f"expected 'scores' array, got {type(scores).__name__}")
+        return scores

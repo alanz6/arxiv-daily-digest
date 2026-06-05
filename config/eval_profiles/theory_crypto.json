@@ -1,0 +1,20 @@
+{
+  "name": "Carol — Theoretical CS / cryptography researcher",
+  "research_interests": [
+    "differential privacy and statistical disclosure",
+    "post-quantum cryptography",
+    "approximation algorithms for combinatorial problems",
+    "information-theoretic lower bounds"
+  ],
+  "methodological_preferences": [
+    "rigorous mathematical proofs",
+    "novel reductions and complexity-theoretic results"
+  ],
+  "avoid": [
+    "purely empirical deep learning papers",
+    "applications of LLMs"
+  ],
+  "arxiv_categories": ["cs.CR", "cs.CC", "cs.DS"],
+  "keywords": ["differential privacy", "cryptography", "lower bound", "approximation", "complexity"],
+  "rating_history": []
+}

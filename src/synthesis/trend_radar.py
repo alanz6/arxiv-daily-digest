@@ -1,12 +1,10 @@
 """Trend radar: cluster the shortlisted papers into themes."""
 from __future__ import annotations
 
-import json
 import logging
 from typing import Optional
 
-import anthropic
-
+from src.llm import LLMClient
 from src.models import Paper, TrendCluster
 
 logger = logging.getLogger(__name__)
@@ -20,39 +18,19 @@ For each cluster:
 - paper_ids: arXiv IDs of the papers in the cluster
 - why_it_matters: 1-2 sentences explaining the broader implication
 
-Be selective. Only surface clusters that represent a real common direction, not loose topical groupings. If fewer than 2 clusters meet the bar, return fewer.
+Be selective. Only surface clusters that represent a real common direction, not loose topical groupings. If fewer than 2 clusters meet the bar, return fewer (an empty array is fine).
 """
 
-RADAR_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "clusters": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "theme": {"type": "string"},
-                    "paper_ids": {"type": "array", "items": {"type": "string"}},
-                    "why_it_matters": {"type": "string"},
-                },
-                "required": ["theme", "paper_ids", "why_it_matters"],
-                "additionalProperties": False,
-            },
-        }
-    },
-    "required": ["clusters"],
-    "additionalProperties": False,
-}
+RADAR_SCHEMA_HINT = """{
+  "clusters": [
+    {"theme": "<string>", "paper_ids": ["<arxiv_id>"], "why_it_matters": "<string>"}
+  ]
+}"""
 
 
 class TrendRadar:
-    def __init__(
-        self,
-        client: Optional[anthropic.Anthropic] = None,
-        model: str = "claude-opus-4-7",
-    ):
-        self.client = client or anthropic.Anthropic()
-        self.model = model
+    def __init__(self, llm: Optional[LLMClient] = None):
+        self.llm = llm or LLMClient()
 
     def cluster(self, papers: list[Paper]) -> list[TrendCluster]:
         if len(papers) < 2:
@@ -64,26 +42,22 @@ class TrendRadar:
         )
         user_content = f"Find thematic clusters in these papers:\n\n{listing}"
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=2048,
+        data = self.llm.chat_json(
             system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_content}],
-            output_config={
-                "format": {
-                    "type": "json_schema",
-                    "schema": RADAR_SCHEMA,
-                }
-            },
+            user=user_content,
+            schema_hint=RADAR_SCHEMA_HINT,
+            max_tokens=2048,
         )
 
-        text = next((b.text for b in response.content if b.type == "text"), "")
-        data = json.loads(text)
+        clusters = data.get("clusters", [])
+        if not isinstance(clusters, list):
+            return []
         return [
             TrendCluster(
-                theme=c["theme"],
-                paper_ids=c["paper_ids"],
-                why_it_matters=c["why_it_matters"],
+                theme=str(c.get("theme", "")),
+                paper_ids=[str(x) for x in c.get("paper_ids", [])],
+                why_it_matters=str(c.get("why_it_matters", "")),
             )
-            for c in data["clusters"]
+            for c in clusters
+            if c.get("theme")
         ]

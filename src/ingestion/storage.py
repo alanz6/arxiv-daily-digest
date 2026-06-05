@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
@@ -33,6 +33,14 @@ CREATE TABLE IF NOT EXISTS papers (
 
 CREATE INDEX IF NOT EXISTS idx_papers_relevance ON papers(relevance_score);
 CREATE INDEX IF NOT EXISTS idx_papers_first_seen ON papers(first_seen);
+
+CREATE TABLE IF NOT EXISTS bookmarks (
+    arxiv_id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (arxiv_id) REFERENCES papers(arxiv_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bookmarks_created ON bookmarks(created_at);
 """
 
 
@@ -57,7 +65,7 @@ class PaperStore:
         """Insert new papers, leave existing ones untouched. Returns (new, seen_existing)."""
         new_count = 0
         existing_count = 0
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             for p in papers:
                 row = conn.execute(
@@ -114,6 +122,102 @@ class PaperStore:
                 "UPDATE papers SET summary = ? WHERE arxiv_id = ?",
                 (summary, arxiv_id),
             )
+
+    def load_all(self) -> list[Paper]:
+        """Load every paper in the DB back into Paper objects.
+
+        Used by the offline evaluation script so we don't re-fetch arXiv.
+        """
+        import json as _json
+        from datetime import datetime as _dt
+
+        out: list[Paper] = []
+        with self._connect() as conn:
+            for r in conn.execute("SELECT * FROM papers"):
+                p = Paper(
+                    arxiv_id=r["arxiv_id"],
+                    title=r["title"],
+                    abstract=r["abstract"],
+                    authors=_json.loads(r["authors"]),
+                    categories=_json.loads(r["categories"]),
+                    published=_dt.fromisoformat(r["published"]),
+                    updated=_dt.fromisoformat(r["updated"]),
+                    pdf_url=r["pdf_url"],
+                    abs_url=r["abs_url"],
+                    semantic_scholar_id=r["semantic_scholar_id"],
+                    citation_count=r["citation_count"],
+                    influential_citation_count=r["influential_citation_count"],
+                    tldr=r["tldr"],
+                    relevance_score=r["relevance_score"],
+                    relevance_rationale=r["relevance_rationale"],
+                    summary=r["summary"],
+                )
+                out.append(p)
+        return out
+
+    # --- Bookmarks ----------------------------------------------------------
+
+    def toggle_bookmark(self, arxiv_id: str) -> bool:
+        """Add the bookmark if missing, remove it if present. Returns the new state."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM bookmarks WHERE arxiv_id = ?", (arxiv_id,)
+            ).fetchone()
+            if row:
+                conn.execute("DELETE FROM bookmarks WHERE arxiv_id = ?", (arxiv_id,))
+                return False
+            conn.execute(
+                "INSERT INTO bookmarks (arxiv_id, created_at) VALUES (?, ?)",
+                (arxiv_id, now),
+            )
+            return True
+
+    def bookmarked_ids(self) -> set[str]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT arxiv_id FROM bookmarks").fetchall()
+            return {r["arxiv_id"] for r in rows}
+
+    def load_bookmarked(self) -> list[tuple[Paper, str]]:
+        """Return (paper, bookmarked_at) pairs, newest bookmark first.
+
+        Joins bookmarks against papers so we get the full paper record back.
+        Bookmarks whose paper row was somehow purged are silently skipped.
+        """
+        import json as _json
+        from datetime import datetime as _dt
+
+        out: list[tuple[Paper, str]] = []
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT p.*, b.created_at AS bookmarked_at
+                FROM bookmarks b
+                JOIN papers p ON p.arxiv_id = b.arxiv_id
+                ORDER BY b.created_at DESC
+                """
+            ).fetchall()
+            for r in rows:
+                p = Paper(
+                    arxiv_id=r["arxiv_id"],
+                    title=r["title"],
+                    abstract=r["abstract"],
+                    authors=_json.loads(r["authors"]),
+                    categories=_json.loads(r["categories"]),
+                    published=_dt.fromisoformat(r["published"]),
+                    updated=_dt.fromisoformat(r["updated"]),
+                    pdf_url=r["pdf_url"],
+                    abs_url=r["abs_url"],
+                    semantic_scholar_id=r["semantic_scholar_id"],
+                    citation_count=r["citation_count"],
+                    influential_citation_count=r["influential_citation_count"],
+                    tldr=r["tldr"],
+                    relevance_score=r["relevance_score"],
+                    relevance_rationale=r["relevance_rationale"],
+                    summary=r["summary"],
+                )
+                out.append((p, r["bookmarked_at"]))
+        return out
 
     def previously_surfaced_titles(self, limit: int = 50) -> list[str]:
         """Recent high-scoring titles, used as 'connections' context for the summarizer."""

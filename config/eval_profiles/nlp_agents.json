@@ -1,0 +1,20 @@
+{
+  "name": "Alice — NLP / LLM agents researcher",
+  "research_interests": [
+    "large language model agents and tool use",
+    "retrieval-augmented generation",
+    "reinforcement learning from human feedback",
+    "instruction following and alignment"
+  ],
+  "methodological_preferences": [
+    "empirical evaluations on standard benchmarks",
+    "papers with released code"
+  ],
+  "avoid": [
+    "image generation aesthetics",
+    "low-level systems papers without ML content"
+  ],
+  "arxiv_categories": ["cs.CL", "cs.LG", "cs.AI"],
+  "keywords": ["agent", "RAG", "RLHF", "tool use", "LLM"],
+  "rating_history": []
+}

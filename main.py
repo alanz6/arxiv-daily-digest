@@ -12,6 +12,13 @@ import logging
 import sys
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 from src.pipeline import Digest, run_pipeline
 
 
@@ -75,7 +82,6 @@ def main() -> int:
     parser.add_argument("--shortlist-max", type=int, default=10, help="Max papers in the shortlist")
     parser.add_argument("--no-enrichment", action="store_true", help="Skip Semantic Scholar enrichment")
     parser.add_argument("--s2-api-key", type=str, default=None, help="Semantic Scholar API key (optional)")
-    parser.add_argument("--model", type=str, default="claude-opus-4-7", help="Anthropic model ID")
     parser.add_argument("--format", choices=["json", "markdown"], default="markdown")
     parser.add_argument("--out", type=Path, default=None, help="Write output to a file instead of stdout")
     parser.add_argument("--verbose", action="store_true")
@@ -95,7 +101,6 @@ def main() -> int:
         shortlist_max=args.shortlist_max,
         semantic_scholar_api_key=args.s2_api_key,
         enable_enrichment=not args.no_enrichment,
-        model=args.model,
     )
 
     if args.format == "json":

@@ -1,0 +1,20 @@
+{
+  "name": "Bob — Computer vision and robotics researcher",
+  "research_interests": [
+    "3D scene reconstruction and neural radiance fields",
+    "robot manipulation and grasping policies",
+    "video understanding and action recognition",
+    "vision-language navigation"
+  ],
+  "methodological_preferences": [
+    "real-world robot experiments",
+    "papers with novel architectural contributions for vision"
+  ],
+  "avoid": [
+    "pure language modeling papers",
+    "theoretical proofs without empirical results"
+  ],
+  "arxiv_categories": ["cs.CV", "cs.RO", "cs.LG"],
+  "keywords": ["NeRF", "manipulation", "video", "robot", "perception"],
+  "rating_history": []
+}
