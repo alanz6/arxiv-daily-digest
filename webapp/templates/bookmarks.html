@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Bookmarks · arXiv Daily Digest{% endblock %}
+{% block content %}
+
+<section class="page-header">
+    <h2>Bookmarked papers</h2>
+    <p class="muted">{{ entries|length }} bookmarked. Newest first.</p>
+</section>
+
+{% if entries|length == 0 %}
+<section class="empty">
+    <p>No bookmarks yet. Click <strong>☆ Bookmark</strong> on any shortlisted paper to save it here.</p>
+    <p><a href="{{ url_for('dashboard') }}">Back to dashboard</a></p>
+</section>
+{% else %}
+<section class="shortlist">
+    {% for paper, bookmarked_at in entries %}
+    <article class="paper">
+        <div class="paper-header">
+            <h3><a href="{{ paper.abs_url }}" target="_blank" rel="noopener">{{ paper.title }}</a></h3>
+            <form method="post" action="{{ url_for('toggle_bookmark', arxiv_id=paper.arxiv_id) }}" class="bookmark-form">
+                <button type="submit" class="bookmark-btn bookmark-on" title="Remove bookmark">★ Bookmarked</button>
+            </form>
+        </div>
+        <p class="meta">
+            {{ paper.authors[:3] | join(', ') }}{% if paper.authors|length > 3 %} + {{ paper.authors|length - 3 }} more{% endif %}
+            · <code>{{ paper.arxiv_id }}</code>
+            {% if paper.relevance_score is not none %}· relevance <strong>{{ '%.2f' % paper.relevance_score }}</strong>{% endif %}
+            {% if paper.citation_count is not none %}· {{ paper.citation_count }} citations{% endif %}
+            · saved {{ bookmarked_at[:10] }}
+        </p>
+        {% if paper.relevance_rationale %}
+        <p class="rationale"><em>Why it matters for you:</em> {{ paper.relevance_rationale }}</p>
+        {% endif %}
+        {% if paper.summary %}
+        <p>{{ paper.summary }}</p>
+        {% endif %}
+        {% if paper.tldr %}
+        <p class="muted"><strong>TLDR:</strong> {{ paper.tldr }}</p>
+        {% endif %}
+    </article>
+    {% endfor %}
+</section>
+{% endif %}
+
+{% endblock %}

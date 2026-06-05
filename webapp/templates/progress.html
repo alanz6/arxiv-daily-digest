@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Running pipeline · arXiv Daily Digest{% endblock %}
+{% block content %}
+
+<section class="progress-card">
+    <div class="progress-header">
+        <h2 id="status-heading">
+            <span class="spinner"></span>
+            Agent working...
+        </h2>
+        <p class="muted" id="status-subline">Streaming live progress from the pipeline.</p>
+    </div>
+
+    <div class="progress-feed" id="feed" role="log" aria-live="polite"></div>
+
+    <div class="progress-footer">
+        <a href="{{ url_for('dashboard') }}" class="muted">← back to dashboard</a>
+    </div>
+</section>
+
+<script>
+(function() {
+    const feed = document.getElementById('feed');
+    const heading = document.getElementById('status-heading');
+    const subline = document.getElementById('status-subline');
+    const src = new EventSource("{{ url_for('events') }}");
+
+    // Maps event type to a friendly stage label + emoji-free icon character.
+    const STAGE_ICONS = {
+        ingest_start:        '▸',
+        ingest_done:         '✓',
+        prefilter_start:     '▸',
+        prefilter_done:      '✓',
+        score_start:         '▸',
+        score_progress:      '·',
+        score_done:          '✓',
+        shortlist_done:      '✓',
+        enrich_start:        '▸',
+        enrich_done:         '✓',
+        summarize_progress:  '·',
+        trend_start:         '▸',
+        trend_done:          '✓',
+        complete:            '✓',
+        error:               '✗',
+    };
+
+    function fmtTime(ts) {
+        const d = new Date(ts * 1000);
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        const ss = String(d.getSeconds()).padStart(2, '0');
+        return `${hh}:${mm}:${ss}`;
+    }
+
+    src.addEventListener('progress', e => {
+        const evt = JSON.parse(e.data);
+        const line = document.createElement('div');
+        line.className = 'feed-line feed-' + evt.type;
+        const icon = STAGE_ICONS[evt.type] || '·';
+        line.innerHTML =
+            '<span class="feed-time">' + fmtTime(evt.timestamp) + '</span>' +
+            '<span class="feed-icon">' + icon + '</span>' +
+            '<span class="feed-msg"></span>';
+        line.querySelector('.feed-msg').textContent = evt.message;
+        feed.appendChild(line);
+        feed.scrollTop = feed.scrollHeight;
+    });
+
+    src.addEventListener('done', () => {
+        src.close();
+        heading.innerHTML = '<span class="checkmark">✓</span> Done.';
+        subline.textContent = 'Redirecting to dashboard...';
+        setTimeout(() => { window.location = "{{ url_for('dashboard') }}"; }, 1500);
+    });
+
+    src.addEventListener('error', () => {
+        src.close();
+        heading.innerHTML = '<span class="x-mark">✗</span> Failed.';
+        subline.innerHTML = '<a href="{{ url_for('dashboard') }}">Return to dashboard</a> and check the error there.';
+    });
+
+    src.addEventListener('idle', () => {
+        src.close();
+        heading.innerHTML = 'Nothing running.';
+        subline.innerHTML = '<a href="{{ url_for('dashboard') }}">Return to dashboard</a> to start a run.';
+    });
+})();
+</script>
+
+{% endblock %}

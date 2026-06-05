@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}arXiv Daily Digest{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header>
+        <div class="container header-inner">
+            <h1><a href="{{ url_for('dashboard') }}">arXiv Daily Digest</a></h1>
+            {% if session.get('logged_in') %}
+                <nav>
+                    <span class="user">{{ session.get('username') }}</span>
+                    <a href="{{ url_for('bookmarks') }}">Bookmarks</a>
+                    <a href="{{ url_for('profile') }}">Profile</a>
+                    <a href="{{ url_for('logout') }}">Log out</a>
+                </nav>
+            {% endif %}
+        </div>
+    </header>
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flashes">
+                    {% for category, message in messages %}
+                        <div class="flash flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

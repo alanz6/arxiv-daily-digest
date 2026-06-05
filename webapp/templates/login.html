@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Log in · arXiv Daily Digest{% endblock %}
+{% block content %}
+<section class="login-card">
+    <h2>Log in</h2>
+    <form method="post" action="{{ url_for('login') }}">
+        <label>
+            Username
+            <input type="text" name="username" autocomplete="username" required autofocus>
+        </label>
+        <label>
+            Password
+            <input type="password" name="password" autocomplete="current-password" required>
+        </label>
+        <button type="submit">Log in</button>
+    </form>
+</section>
+{% endblock %}

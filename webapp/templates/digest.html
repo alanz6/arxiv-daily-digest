@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="refresh-card">
+    <form method="post" action="{{ url_for('refresh') }}" class="refresh-form">
+        <h2>Refresh digest</h2>
+        <p class="muted last-run-hint">
+            {% if days_since_last_run is none %}
+                No previous runs — pick a lookback window to start.
+            {% elif days_since_last_run == 0 %}
+                Last refreshed earlier today. A lookback of 1 day will cover anything new.
+            {% elif days_since_last_run == 1 %}
+                Last refreshed 1 day ago. Suggested lookback: <strong>{{ recommended_lookback }}</strong> days to cover what you've missed.
+            {% else %}
+                Last refreshed <strong>{{ days_since_last_run }}</strong> days ago. Suggested lookback: <strong>{{ recommended_lookback }}</strong> days to cover what you've missed.
+            {% endif %}
+        </p>
+        <div class="refresh-controls">
+            <label>
+                Lookback (days)
+                <input type="number" name="lookback" value="{{ recommended_lookback }}" min="1" max="14">
+            </label>
+            <label>
+                Relevance threshold
+                <input type="number" name="threshold" value="0.6" min="0" max="1" step="0.05">
+            </label>
+            <label>
+                Shortlist size
+                <input type="number" name="shortlist_max" value="10" min="1" max="50">
+            </label>
+            <button type="submit">Run pipeline</button>
+        </div>
+        <p class="muted">This runs ingestion + scoring + summarization.</p>
+    </form>
+</section>
+
+{% if no_new_papers %}
+    <section class="flashes">
+        <div class="flash flash-success">
+            No new papers since the last run — arXiv hasn't published anything you haven't already seen.
+            {% if digest %}Showing the previous digest below.{% endif %}
+            Try increasing the lookback window to pull older papers.
+        </div>
+    </section>
+{% endif %}
+{% if not digest %}
+    <section class="empty">
+        <p>No digest yet. Click <strong>Run pipeline</strong> to generate one.</p>
+    </section>
+{% else %}
+    <section class="stats">
+        <p class="muted">
+            Generated {{ generated_at }} ·
+            {{ digest.stats.new_papers }} new papers,
+            {{ digest.shortlist|length }} shortlisted,
+            {{ digest.stats.skipped }} skipped.
+        </p>
+    </section>
+
+    {% if digest.trends %}
+    <section class="trends">
+        <h2>Trend Radar</h2>
+        {% for trend in digest.trends %}
+        <article class="trend">
+            <h3>{{ trend.theme }}</h3>
+            <p>{{ trend.why_it_matters }}</p>
+            <p class="muted">Papers:
+                {% for pid in trend.paper_ids %}<code>{{ pid }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+            </p>
+        </article>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    <section class="shortlist">
+        <h2>Shortlist</h2>
+        {% if digest.shortlist|length == 0 %}
+            <p class="muted">No papers cleared the relevance threshold.</p>
+        {% endif %}
+        {% for item in digest.shortlist %}
+        <article class="paper">
+            <div class="paper-header">
+                <h3><a href="{{ item.abs_url }}" target="_blank" rel="noopener">{{ item.title }}</a></h3>
+                <form method="post" action="{{ url_for('toggle_bookmark', arxiv_id=item.arxiv_id) }}" class="bookmark-form">
+                    {% if item.arxiv_id in bookmarked_ids %}
+                        <button type="submit" class="bookmark-btn bookmark-on" title="Remove bookmark">★ Bookmarked</button>
+                    {% else %}
+                        <button type="submit" class="bookmark-btn" title="Bookmark this paper">☆ Bookmark</button>
+                    {% endif %}
+                </form>
+            </div>
+            <p class="meta">
+                {{ item.authors[:3] | join(', ') }}{% if item.authors|length > 3 %} + {{ item.authors|length - 3 }} more{% endif %}
+                · <code>{{ item.arxiv_id }}</code>
+                · relevance <strong>{{ '%.2f' % item.relevance_score }}</strong>
+                {% if item.citation_count is not none %}· {{ item.citation_count }} citations{% endif %}
+            </p>
+            <p class="rationale"><em>Why it matters for you:</em> {{ item.relevance_rationale }}</p>
+            <p>{{ item.plain_language }}</p>
+            {% if item.key_contributions %}
+            <p><strong>Key contributions:</strong></p>
+            <ul>
+                {% for c in item.key_contributions %}<li>{{ c }}</li>{% endfor %}
+            </ul>
+            {% endif %}
+            <p><strong>Methodology:</strong> {{ item.methodology_notes }}</p>
+            <p><strong>Connections:</strong> {{ item.connections }}</p>
+        </article>
+        {% endfor %}
+    </section>
+{% endif %}
+{% endblock %}

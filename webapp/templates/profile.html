@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Profile · arXiv Daily Digest{% endblock %}
+{% block content %}
+
+<section class="profile-card">
+    <h2>Your research profile</h2>
+    <p class="muted">
+        Used by the LLM scorer to grade incoming papers. Changes take effect on the next pipeline run.
+        Saved to <code>{{ profile_path }}</code>.
+    </p>
+
+    <form method="post" action="{{ url_for('profile') }}" class="profile-form">
+
+        <label>
+            Display name
+            <input type="text" name="name" value="{{ profile.get('name', '') }}" placeholder="Your name">
+        </label>
+
+        <label>
+            Research interests <span class="muted">(one per line — the more specific, the better)</span>
+            <textarea name="research_interests" rows="6" placeholder="large language model agents and tool use&#10;retrieval-augmented generation">{{ profile.get('research_interests', []) | join('\n') }}</textarea>
+        </label>
+
+        <label>
+            Methodological preferences <span class="muted">(one per line — what makes a paper worth reading)</span>
+            <textarea name="methodological_preferences" rows="4" placeholder="empirical evaluations on standard benchmarks&#10;papers with released code">{{ profile.get('methodological_preferences', []) | join('\n') }}</textarea>
+        </label>
+
+        <label>
+            Topics to deprioritize <span class="muted">(one per line — pushes matching papers down)</span>
+            <textarea name="avoid" rows="3" placeholder="image generation aesthetics&#10;application papers without methodological contributions">{{ profile.get('avoid', []) | join('\n') }}</textarea>
+        </label>
+
+        <label>
+            arXiv categories <span class="muted">(comma-separated — which arXiv sections to ingest)</span>
+            <input type="text" name="arxiv_categories" value="{{ profile.get('arxiv_categories', []) | join(', ') }}" placeholder="cs.CL, cs.LG, cs.AI">
+        </label>
+
+        <label>
+            Baseline keywords <span class="muted">(comma-separated — used only by the keyword-baseline scorer in evaluations)</span>
+            <input type="text" name="keywords" value="{{ profile.get('keywords', []) | join(', ') }}" placeholder="agent, RAG, RLHF, interpretability">
+        </label>
+
+        <div class="profile-actions">
+            <button type="submit">Save changes</button>
+            <a href="{{ url_for('dashboard') }}" class="muted">Cancel</a>
+        </div>
+    </form>
+</section>
+
+{% endblock %}
