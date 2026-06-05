@@ -2,8 +2,14 @@ __pycache__/
 *.pyc
 .venv/
 venv/
-data/
+data/*
+!data/.gitkeep
 config/me.json
+config/my_profile.json
 config/*.local.json
 .env
+.env.local
 *.db
+instance/
+.DS_Store
+.pytest_cache/
